@@ -1,13 +1,13 @@
 --
 -- Plugin Homepage: https://github.com/rosch100/Bank-of-America-MoneyMoney
--- Bank of America — MoneyMoney Web Banking Extension (Beta 0.91, Cookie-Import)
+-- Bank of America — MoneyMoney Web Banking Extension (Beta 0.92, Cookie-Import)
 -- https://www.bankofamerica.com
 -- Dokumentation: README.md (Hub: https://github.com/rosch100/moneymoney-extensions)
 -- API: https://moneymoney.app/api/webbanking/
 --
 
 WebBanking{
-  version     = 0.91,
+  version     = 0.92,
   url         = "https://secure.bankofamerica.com",
   services    = {"Bank of America"},
   description = "Bank of America — Beta (Cookie-Import)"
@@ -259,11 +259,44 @@ local function syncCookieHeader(requestHeaders)
   requestHeaders["Cookie"] = session.cookies
 end
 
+local function hostFromBoaUrl(url)
+  if type(url) ~= "string" or url == "" then
+    return nil
+  end
+  local host = url:match("^https?://([^/]+)")
+  if not host then
+    return nil
+  end
+  host = host:lower():gsub(":443$", ""):gsub(":80$", "")
+  return host
+end
+
+-- Only secure.bankofamerica.com (MoneyMoney whitelist / open-redirect guard).
+local function assertAllowedBoaUrl(url)
+  if type(url) ~= "string" or url == "" then
+    error("Bank of America: leere URL")
+  end
+  local absolute = url
+  if not url:match("^https?://") then
+    if url:sub(1, 1) == "/" then
+      absolute = CONSTANTS.baseUrl .. url
+    else
+      absolute = CONSTANTS.baseUrl .. "/" .. url
+    end
+  end
+  local host = hostFromBoaUrl(absolute)
+  if host ~= "secure.bankofamerica.com" then
+    error("Bank of America: Host nicht erlaubt: " .. tostring(host))
+  end
+  return absolute
+end
+
 -- connection:request liefert (content, charset, mimeType, filename, headers).
 -- Wir verwenden nur content + mimeType (Letzteres fuer PDF-Erkennung in
 -- GetStatement); der charset-Wert (z.B. "utf-8") wird mit `_` verworfen,
 -- damit Caller ihn nicht versehentlich als HTTP-Status interpretieren.
 local function performGet(url, requestHeaders, refererUrl)
+  url = assertAllowedBoaUrl(url)
   if refererUrl then
     requestHeaders["Referer"] = refererUrl
   end
@@ -275,6 +308,7 @@ local function performGet(url, requestHeaders, refererUrl)
 end
 
 local function performPost(url, postData, contentType, requestHeaders, refererUrl)
+  url = assertAllowedBoaUrl(url)
   if refererUrl then
     requestHeaders["Referer"] = refererUrl
   end
@@ -287,6 +321,7 @@ local function performPost(url, postData, contentType, requestHeaders, refererUr
 end
 
 local function performRequest(method, url, body, contentType, requestHeaders, refererUrl)
+  url = assertAllowedBoaUrl(url)
   if refererUrl then
     requestHeaders["Referer"] = refererUrl
   end
@@ -424,7 +459,7 @@ local function normalizeStatementPeriodUrl(urlMatch)
     end
   end
 
-  return url
+  return assertAllowedBoaUrl(url)
 end
 
 local function mergeTransactions(allTransactions, seenTransactions, pageTransactions)
@@ -2033,7 +2068,7 @@ local function normalizeTransactionDetailUrl(urlMatch)
   elseif not url:find("^http") then
     url = CONSTANTS.baseUrl .. "/" .. url
   end
-  return url
+  return assertAllowedBoaUrl(url)
 end
 
 local function extractTransactionDetailUrl(row)
