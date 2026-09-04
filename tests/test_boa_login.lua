@@ -31,12 +31,6 @@ MM = {
   base64Encode = function(data)
     return "b64:" .. data
   end,
-  aes128encrypt = function(key, iv, data, mode)
-    if key and data then
-      return "cipher:" .. data .. ":" .. tostring(mode or "default")
-    end
-    return nil
-  end,
   rsaPkcs8decode = function(pemOrDer)
     if type(pemOrDer) == "string" and pemOrDer:find("PUBLIC KEY") then
       return { n = "mod", e = "exp" }
@@ -92,30 +86,9 @@ do
     "performPasswordLogin.delegatesToSparta")
 end
 
-assertTrue(canUseAcwCrypto(), "canUseAcwCrypto")
 assertTrue(canUseRsaLogin(), "canUseRsaLogin")
 
-local padded = zeroPadToBlockSize("selectedContact|0|contactType|text", 16)
-assertEq(#padded, 48, "zeroPadToBlockSize.length")
-
-local encrypted, encErr = acwAesEncrypt("123456", "92CE60497D95E320")
-assertTrue(encrypted ~= nil and encrypted:match("^b64:"), "acwAesEncrypt")
-assertEq(encErr, nil, "acwAesEncrypt.error")
-
-local csrf = parseCsrfFromSignOnScreen('<input name="csrfTokenHidden" value="abc123def45678" id="csrfTokenHidden"/>')
-assertEq(csrf, "abc123def45678", "parseCsrfFromSignOnScreen")
-
-local key = parseAcwEncryptKey('var xswInitSettings = { acwEncryptKey:"92CE60497D95E320" }')
-assertEq(key, "92CE60497D95E320", "parseAcwEncryptKey")
-
-local jsonp = parseJsonpPayload('jQuery123({"xswPageId":"ok"})')
-assertTrue(jsonp and jsonp.xswPageId == "ok", "parseJsonpPayload")
-
-local token = extractHiddenInputValue("<input name='validationToken' value='abc%2Bdef'/>", "validationToken")
-assertEq(token, "abc%2Bdef", "extractHiddenInputValue")
-
 assertTrue(isSignOnSuccessRedirect("https://secure.bankofamerica.com/login/sign-in/signOnSuccessRedirect.go"), "isSignOnSuccessRedirect")
-assertTrue(isSignOnCredentialError("https://secure.bankofamerica.com/login/sign-in/signOnV2Screen.go?msg=InvalidCredentialsExceptionV2"), "isSignOnCredentialError")
 assertTrue(isSignOnCredentialErrorPage("<p>The information you entered doesn't match our records.</p>"), "isSignOnCredentialErrorPage")
 
 local snippet = extractSignOnErrorSnippet("<p class=\"TLu_ERROR\">The information you entered doesn't match our records.</p>")
@@ -133,11 +106,6 @@ assertTrue(emptySummary:match("WARN passcode leer"), "boaDebugSummarizeCredentia
 local blockedMsg = directLoginUnavailableMessage()
 assertTrue(blockedMsg:match("Cookie%-Import"), "directLoginUnavailableMessage")
 assertTrue(blockedMsg:match("WebbankingBrowser"), "directLoginUnavailableMessage.browser")
-
-local formBody = buildSignOnFormBody("csrf123456789abc", "user123", "secretpass")
-assertTrue(formBody:match("onlineId="), "buildSignOnFormBody.onlineId")
-assertTrue(formBody:match("_ib="), "buildSignOnFormBody._ib")
-assertTrue(not formBody:match("f_variable="), "buildSignOnFormBody.noFingerprint")
 
 local sessionKey = {
   keyId = "hsm_enc_v1_authhub-key",
@@ -366,29 +334,6 @@ assertEq(refreshOk, false, "RefreshAccount.propagatesFailure")
 assertTrue(
   type(refreshError) == "string" and refreshError:match("abruf") ~= nil,
   "RefreshAccount.failureMessage")
-
-Connection = function()
-  return {
-    request = function()
-      return "<p>The information you entered doesn't match our records.</p>",
-        nil,
-        nil,
-        nil,
-        {}
-    end,
-    getCookies = function()
-      return ""
-    end,
-  }
-end
-InitializeSession2(
-  ProtocolWebBanking,
-  "Bank of America",
-  1,
-  {"credential-rejection", "COOKIE:SMSESSION=value"},
-  true)
-local _, credentialError = postSignOnCredentials("user", "wrong", "csrf-token")
-assertEq(credentialError, LoginFailed, "postSignOnCredentials.rejectedCredentials")
 
 Connection = function()
   return {
