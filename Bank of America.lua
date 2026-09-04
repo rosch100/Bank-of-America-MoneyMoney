@@ -1711,7 +1711,7 @@ function directLoginUnavailableMessage()
     .. "3. MoneyMoney Passwort: COOKIE:SMSESSION=...;SSOTOKEN=...\n\n"
     .. "HAR: python3 scripts/extract-boa-cookies.py login.har\n\n"
     .. "Für Direct-Login fehlt die Engine-API WebbankingBrowser.\n"
-    .. "Details: docs/ENGINE-API-GAPS.md"
+    .. "Details: https://github.com/rosch100/moneymoney-extensions/blob/main/docs/ENGINE-API-GAPS.md"
 end
 
 function performPasswordLogin(username, password)
