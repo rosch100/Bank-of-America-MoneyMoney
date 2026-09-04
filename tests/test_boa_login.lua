@@ -445,4 +445,42 @@ statementPayload = [[{"documents":[
 local nestedDocuments = fetchStatementDocuments("adx-token", nil)
 assertEq(#nestedDocuments, 2, "GetAvailableStatements.parsesAllNestedDocuments")
 
+-- Multi-login: two accountKeys keep distinct connections in the map
+do
+  local connA = {
+    language = "",
+    useragent = "",
+    getCookies = function() return "A=1" end,
+    request = function() return nil end,
+  }
+  local connB = {
+    language = "",
+    useragent = "",
+    getCookies = function() return "B=1" end,
+    request = function() return nil end,
+  }
+  local created = 0
+  Connection = function()
+    created = created + 1
+    if created == 1 then return connA end
+    if created == 2 then return connB end
+    return {
+      language = "",
+      useragent = "",
+      getCookies = function() return "" end,
+      request = function() return nil end,
+    }
+  end
+  LocalStorage = {}
+  restoreLoginConnection("user-a")
+  assertEq(LocalStorage.connectionsByAccount["user-a"].connection, connA, "multiLogin.map.userA")
+  restoreLoginConnection("user-b")
+  assertEq(LocalStorage.connectionsByAccount["user-b"].connection, connB, "multiLogin.map.userB")
+  assertEq(LocalStorage.connectionsByAccount["user-a"].connection, connA, "multiLogin.map.userA.kept")
+  assertEq(LocalStorage.connectionAccountKey, "user-b", "multiLogin.activeKey.userB")
+  restoreLoginConnection("user-a")
+  assertEq(LocalStorage.connection, connA, "multiLogin.reusesUserA")
+  assertEq(LocalStorage.connectionAccountKey, "user-a", "multiLogin.activeKey.userA")
+end
+
 print("All BoA login helper tests passed.")

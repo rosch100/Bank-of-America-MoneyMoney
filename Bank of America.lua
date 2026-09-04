@@ -7,7 +7,7 @@
 --
 
 WebBanking{
-  version     = 0.91,
+  version     = 0.92,
   url         = "https://secure.bankofamerica.com",
   services    = {"Bank of America"},
   description = "Bank of America — Beta (Cookie-Import)"
@@ -1267,23 +1267,38 @@ end
 
 function restoreLoginConnection(accountKey)
   local storage = rawget(_G, "LocalStorage")
-  local canReuse = storage and storage.connection and storage.connectionAccountKey == accountKey
+  accountKey = accountKey or ""
+  if not storage then
+    connection = Connection()
+    session.persistedConnection = false
+    connection.language = "en-US"
+    connection.useragent = CONSTANTS.userAgent
+    session.cookies = connection:getCookies() or session.cookies
+    return false
+  end
+
+  storage.connectionsByAccount = storage.connectionsByAccount or {}
+  local entry = storage.connectionsByAccount[accountKey]
+  if storage.connection ~= nil and storage.connectionAccountKey == accountKey then
+    entry = entry or {}
+    entry.connection = storage.connection
+    storage.connectionsByAccount[accountKey] = entry
+  end
+  local canReuse = entry ~= nil and entry.connection ~= nil
   if canReuse then
-    connection = storage.connection
+    connection = entry.connection
     session.persistedConnection = true
   else
     connection = Connection()
-    if storage then
-      storage.connection = connection
-      storage.connectionAccountKey = accountKey
-      session.persistedConnection = true
-    else
-      session.persistedConnection = false
-    end
+    storage.connectionsByAccount[accountKey] = { connection = connection }
+    session.persistedConnection = true
   end
+  storage.connection = connection
+  storage.connectionAccountKey = accountKey
   connection.language = "en-US"
   connection.useragent = CONSTANTS.userAgent
   session.cookies = connection:getCookies() or session.cookies
+  return canReuse
 end
 
 function directLoginUnavailableMessage()

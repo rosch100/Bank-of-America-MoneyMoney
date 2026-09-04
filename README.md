@@ -1,7 +1,7 @@
 # Bank of America — MoneyMoney Extension
 Plugin Homepage: https://github.com/rosch100/Bank-of-America-MoneyMoney
 Bank/Portal: https://www.bankofamerica.com
-Version: **0.91**
+Version: **0.92**
 Status: Beta — Cookie-Import (Username/Passwort + MFA wenn Engine-API da)
 Hub (gemeinsame Tools/Doku): https://github.com/rosch100/moneymoney-extensions
 Optional Cookie-Import: Passwort `COOKIE:SMSESSION=…;SSOTOKEN=…` (Details: Hub-README).
