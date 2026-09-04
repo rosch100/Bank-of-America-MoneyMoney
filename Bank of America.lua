@@ -1,13 +1,13 @@
 --
 -- Plugin Homepage: https://github.com/rosch100/Bank-of-America-MoneyMoney
--- Bank of America — MoneyMoney Web Banking Extension (Beta 0.92, Cookie-Import)
+-- Bank of America — MoneyMoney Web Banking Extension (Beta 0.91, Cookie-Import)
 -- https://www.bankofamerica.com
 -- Dokumentation: README.md (Hub: https://github.com/rosch100/moneymoney-extensions)
 -- API: https://moneymoney.app/api/webbanking/
 --
 
 WebBanking{
-  version     = 0.92,
+  version     = 0.91,
   url         = "https://secure.bankofamerica.com",
   services    = {"Bank of America"},
   description = "Bank of America — Beta (Cookie-Import)"
