@@ -42,7 +42,15 @@ local session = { cookies = "", adxToken = "", statementPageUrl = "", persistedC
 
 local DEBUG_PREFIX = "BoA-DEBUG:"
 
+local function isBoaDebugEnabled()
+  local storage = rawget(_G, "LocalStorage")
+  return storage ~= nil and storage.boaDebug == true
+end
+
 function boaDebugLog(message)
+  if not isBoaDebugEnabled() then
+    return
+  end
   if type(message) ~= "string" or message == "" then
     return
   end
@@ -55,11 +63,13 @@ function boaDebugShortUrl(url)
   if type(url) ~= "string" then
     return "(keine URL)"
   end
-  local path = url:match("^https?://[^/]+(.+)$")
+  -- Path only, strip query/fragment to avoid leaking tokens in status logs.
+  local path = url:match("^https?://[^/]+([^?#]*)")
   if path then
     return path
   end
-  return url
+  local bare = url:match("^([^?#]+)")
+  return bare or url
 end
 
 function boaDebugLen(value)
@@ -271,7 +281,7 @@ local function hostFromBoaUrl(url)
   return host
 end
 
--- Only secure.bankofamerica.com (MoneyMoney whitelist / open-redirect guard).
+-- Only https://secure.bankofamerica.com (MoneyMoney whitelist / open-redirect guard).
 local function assertAllowedBoaUrl(url)
   if type(url) ~= "string" or url == "" then
     error("Bank of America: leere URL")
@@ -283,6 +293,8 @@ local function assertAllowedBoaUrl(url)
     else
       absolute = CONSTANTS.baseUrl .. "/" .. url
     end
+  elseif not url:match("^https://") then
+    error("Bank of America: nur https:// erlaubt")
   end
   local host = hostFromBoaUrl(absolute)
   if host ~= "secure.bankofamerica.com" then
@@ -903,6 +915,7 @@ end
 
 local function performLoginApiPost(url, bodyTable)
   ensureConnection()
+  url = assertAllowedBoaUrl(url)
   local headers = buildLoginApiHeaders()
   local body = encodeJson(bodyTable)
   syncCookieHeader(headers)
