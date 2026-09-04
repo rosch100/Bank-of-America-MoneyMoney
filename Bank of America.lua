@@ -64,7 +64,7 @@ function boaDebugShortUrl(url)
     return "(keine URL)"
   end
   -- Path only, strip query/fragment to avoid leaking tokens in status logs.
-  local path = url:match("^https?://[^/]+([^?#]*)")
+  local path = url:match("^https?://[^/?#]+([^?#]*)")
   if path then
     return path
   end
@@ -273,7 +273,7 @@ local function hostFromBoaUrl(url)
   if type(url) ~= "string" or url == "" then
     return nil
   end
-  local host = url:match("^https?://([^/]+)")
+  local host = url:match("^https?://([^/?#]+)")
   if not host then
     return nil
   end
