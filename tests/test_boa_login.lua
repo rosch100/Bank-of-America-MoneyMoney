@@ -28,7 +28,7 @@ MM = {
   urlencode = function(str)
     return (tostring(str):gsub(" ", "+"))
   end,
-  base64Encode = function(data)
+  base64 = function(data)
     return "b64:" .. data
   end,
   rsaPkcs8decode = function(pemOrDer)
@@ -87,6 +87,13 @@ do
 end
 
 assertTrue(canUseRsaLogin(), "canUseRsaLogin")
+do
+  local savedBase64 = MM.base64
+  MM.base64 = nil
+  assertTrue(not canUseRsaLogin(), "canUseRsaLogin.requiresBase64")
+  MM.base64 = savedBase64
+  assertTrue(canUseRsaLogin(), "canUseRsaLogin.restored")
+end
 
 assertTrue(isSignOnSuccessRedirect("https://secure.bankofamerica.com/login/sign-in/signOnSuccessRedirect.go"), "isSignOnSuccessRedirect")
 assertTrue(isSignOnCredentialErrorPage("<p>The information you entered doesn't match our records.</p>"), "isSignOnCredentialErrorPage")

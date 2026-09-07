@@ -8,8 +8,11 @@ Gemeinsame Infos: https://github.com/rosch100/moneymoney-extensions
 
 ## Installation
 
-Unsignierte Datei:
+Datei:
 [Bank of America.lua](https://raw.githubusercontent.com/rosch100/Bank-of-America-MoneyMoney/main/Bank%20of%20America.lua)
+
+Nach dem Base64-API-Fix (`MM.base64` / `MM.base64decode`) muss die Datei neu
+signiert werden; bis dahin ggf. Signaturprüfung in MoneyMoney-Beta ausschalten.
 
 Datei nach
 `~/Library/Containers/com.moneymoney-app.retail/Data/Library/Application Support/MoneyMoney/Extensions`
