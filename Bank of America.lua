@@ -1522,7 +1522,7 @@ function ListAccounts(knownAccounts)
   for accountSection in response:gmatch('TL_NPI_AcctName[^>]*>([\0-\255]-)</span>') do
     local accountName = accountSection:gsub("^%s*", ""):gsub("%s*$", "")
     local maskedNum = accountName:match("%-%s*(%d%d%d%d)%s*$") or accountName:match("(%d%d%d%d)%s*$")
-    
+
     if not maskedNum then
       maskedNum = accountSection:match("%*%*(%d%d%d%d)") or accountSection:match("ending in%s+(%d%d%d%d)")
     end
@@ -1557,7 +1557,7 @@ function ListAccounts(knownAccounts)
       end
     end
   end
-  
+
   if #accounts == 0 then
     local fallbackNumbers = {}
     for num in response:gmatch("Ending in%s+(%d%d%d%d)") do
@@ -1608,7 +1608,7 @@ function ListAccounts(knownAccounts)
       return "Bank of America: Mehrere Konten konnten nicht eindeutig klassifiziert werden."
     end
   end
-  
+
   if #accounts == 0 then
     return "Bank of America: Keine Konten in der Serverantwort gefunden."
   end
@@ -2025,7 +2025,7 @@ function RefreshAccount(account, since)
     requestHeaders,
     refererUrl
   )
-  
+
   if not firstPageResponse then
     error("Bank of America: Keine Serverantwort beim Kontoabruf.")
   end
@@ -2050,7 +2050,7 @@ function RefreshAccount(account, since)
     balance = -balance
   end
 
-  local adxToken = firstPageResponse:match('adx=["\']?([0-9a-f]+)') or 
+  local adxToken = firstPageResponse:match('adx=["\']?([0-9a-f]+)') or
                    firstPageResponse:match('["\']adx["\']%s*[:=]%s*["\']?([0-9a-f]+)')
   if adxToken then
     session.adxToken = adxToken
@@ -2362,3 +2362,4 @@ function DownloadStatement(account, statement)
   return GetStatement(account, statementId)
 end
 
+-- SIGNATURE: MCwCFDWWPf7m2K7TQwMc7x+F4eCEZTaTAhRfiXME1iI5vA14WXl7GLA6SnyiRw==
