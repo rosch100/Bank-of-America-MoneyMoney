@@ -34,6 +34,12 @@ Schritt-für-Schritt: [Hub — Cookie-Import](https://github.com/rosch100/moneym
 Nach dem Einrichten den Zugang in MoneyMoney aktualisieren. Läuft die Session ab,
 Cookies erneut kopieren und das Passwortfeld aktualisieren.
 
+## Fehler & Ideen
+
+Issues bitte über GitHub melden:
+[Neues Issue](https://github.com/rosch100/Bank-of-America-MoneyMoney/issues/new/choose).
+Keine MoneyMoney-Logdateien anhängen — Details stehen im Bug-Formular.
+
 ## Lizenz
 
 MIT — siehe [LICENSE](LICENSE).
