@@ -835,32 +835,9 @@ function SupportsBank(protocol, bankCode)
   return protocol == ProtocolWebBanking and bankCode == "Bank of America"
 end
 
-function restoreImportedCookies(accountKey)
-  local storage = rawget(_G, "LocalStorage")
-  if not storage or not storage.connectionsByAccount then
-    return
-  end
-  local entry = storage.connectionsByAccount[accountKey]
-  if entry and type(entry.importedCookies) == "string" and entry.importedCookies ~= "" then
-    -- Importierte Cookies sind nur die Basis; frischere Werte der Connection gewinnen.
-    session.cookies = mergeCookies(entry.importedCookies, session.cookies)
-  end
-end
-
-function persistImportedCookies(cookieString)
-  local storage = rawget(_G, "LocalStorage")
-  if not storage then
-    error("Bank of America: LocalStorage nicht verfügbar, Cookies können nicht gespeichert werden.")
-  end
-  local accountKey = storage.connectionAccountKey or ""
-  storage.connectionsByAccount = storage.connectionsByAccount or {}
-  local entry = storage.connectionsByAccount[accountKey]
-  if not entry then
-    entry = { connection = connection }
-    storage.connectionsByAccount[accountKey] = entry
-  end
-  entry.importedCookies = cookieString
-
+-- Setzt die Cookies aus dem Passwortfeld nur für diesen Abruf in der Connection.
+-- Es wird nichts dauerhaft gespeichert: BoA beendet inaktive Sitzungen nach wenigen Minuten.
+function applyImportedCookies(cookieString)
   if type(connection.setCookie) ~= "function" then
     error("Bank of America: Connection:setCookie fehlt, Cookies können nicht gesetzt werden.")
   end
@@ -880,7 +857,6 @@ function InitializeSession2(protocol, bankCode, step, credentials, interactive)
   boaDebugLog("InitializeSession2 step=" .. tostring(step) .. ", " .. boaDebugSummarizeCredentials(username, password))
 
   restoreLoginConnection(accountKey)
-  restoreImportedCookies(accountKey)
 
   local storedSessionValid = nil
   if step == 1 then
@@ -947,7 +923,7 @@ function loginWithImportedCookies(cookieString)
   if isAuthenticatedAccountPage(testResponse) then
     rememberStatementPageUrl(testResponse, session.adxToken)
     updateAdxFromResponse(testResponse, session.adxToken)
-    persistImportedCookies(formattedCookies)
+    applyImportedCookies(formattedCookies)
     return nil
   end
 
@@ -1511,7 +1487,10 @@ function RefreshAccount(account, since)
     error("Bank of America: Keine Serverantwort beim Kontoabruf.")
   end
   if not isAuthenticatedAccountPage(firstPageResponse) then
-    error("Bank of America: Kontoabruf lieferte keine authentifizierte Kontoseite.")
+    -- Der Server leitet auf die Login-Seite um: die Sitzung ist abgelaufen. Keine Passwort-Meldung
+    -- (LoginFailed würde gespeicherte Cookies löschen), sondern ein klarer Hinweis auf neue Cookies.
+    error("Bank of America: Die gespeicherte Sitzung ist abgelaufen. Bitte neue Cookies importieren: "
+      .. "Passwort = COOKIE:SMSESSION=...;SSOTOKEN=... und erneut abrufen.")
   end
 
   rememberStatementPageUrl(firstPageResponse, session.adxToken)

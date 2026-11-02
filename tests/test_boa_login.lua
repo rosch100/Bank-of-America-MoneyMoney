@@ -466,7 +466,8 @@ local loginPageOk, loginPageError = pcall(
 assertEq(loginPageOk, false, "RefreshAccount.rejectsLoginPage")
 assertTrue(
   type(loginPageError) == "string"
-    and loginPageError:match("authentifiziert") ~= nil,
+    and loginPageError:find("abgelaufen", 1, true) ~= nil
+    and loginPageError:find("COOKIE:SMSESSION", 1, true) ~= nil,
   "RefreshAccount.loginPageMessage")
 
 local statementPayload =
@@ -577,20 +578,22 @@ do
   assertEq(LocalStorage.connectionAccountKey, "user-a", "multiLogin.activeKey.userA")
 end
 
--- Cookie-Persistenz: Erfolgreicher Import wird gespeichert und ohne neuen Import wiederverwendet.
+-- Der Cookie-Import gilt für die laufende Verbindung; ein erneuter Abruf nutzt deren Cookie-Jar weiter.
 local authedHtml = "<html>Ending in 1234 balance</html>"
 local loginHtml = "<html><body>Unexpected response</body></html>"
 local currentPage = authedHtml
 Connection = function()
+  local jar = {}
   return {
     request = function()
       return currentPage
     end,
     setCookie = function(self, cookie)
       table.insert(setCookieCalls, cookie)
+      table.insert(jar, cookie)
     end,
     getCookies = function()
-      return ""
+      return table.concat(jar, "; ")
     end,
   }
 end
@@ -602,7 +605,7 @@ local importResult = InitializeSession2(
   {"user123", "COOKIE:SMSESSION=value"}, true)
 assertEq(importResult, nil, "persist.importReturnsNil")
 assertEq(setCookieCalls[1], "SMSESSION=value", "persist.setCookie")
-assertEq(LocalStorage.connectionsByAccount["user123"].importedCookies, "SMSESSION=value", "persist.storedCookies")
+assertEq(LocalStorage.connectionsByAccount["user123"].importedCookies, nil, "persist.notStored")
 
 setCookieCalls = {}
 local reuseResult = InitializeSession2(
@@ -618,11 +621,12 @@ local expiredResult = InitializeSession2(
 assertTrue(expiredResult ~= nil and expiredResult:find("abgelaufen", 1, true) ~= nil, "persist.expiredAsksForCookies")
 currentPage = authedHtml
 
--- Cookie-Vorrang: ein frischer Cookie der Connection ersetzt den gespeicherten Import.
+-- Gespeicherte Import-Cookies werden nicht mehr zurückgespielt: ein alter Wert darf
+-- bei einem Abruf nicht mehr als Cookie gesendet werden.
 do
   local sentCookie = nil
-  local reusedConnection = {
-    getCookies = function() return "SMSESSION=fresh" end,
+  local staleConnection = {
+    getCookies = function() return "" end,
     setCookie = function(self, cookie) table.insert(setCookieCalls, cookie) end,
     request = function(self, method, url, body, contentType, headers)
       sentCookie = headers and headers["Cookie"]
@@ -631,19 +635,16 @@ do
   }
   LocalStorage = {
     connectionsByAccount = {
-      ["cookie-precedence"] = {
-        connection = reusedConnection,
+      ["stale-import"] = {
+        connection = staleConnection,
         importedCookies = "SMSESSION=old",
       },
     },
   }
   InitializeSession2(
     ProtocolWebBanking, "Bank of America", 1,
-    {"cookie-precedence", "secret"}, true)
-  assertTrue(sentCookie ~= nil and sentCookie:find("SMSESSION=fresh", 1, true) ~= nil,
-    "restoreImportedCookies.connectionCookieWins")
-  assertTrue(sentCookie ~= nil and sentCookie:find("SMSESSION=old", 1, true) == nil,
-    "restoreImportedCookies.noStaleImport")
+    {"stale-import", "secret"}, true)
+  assertTrue(sentCookie == nil, "noStoredImport.staleValueNotSent")
   LocalStorage = {}
 end
 
