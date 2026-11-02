@@ -7,7 +7,7 @@
 --
 
 WebBanking{
-  version     = 0.92,
+  version     = 0.93,
   url         = "https://secure.bankofamerica.com",
   services    = {"Bank of America"},
   description = "Bank of America — Beta (Cookie-Import)"
@@ -1822,4 +1822,3 @@ function DownloadStatement(account, statement)
   return GetStatement(account, statementId)
 end
 
--- SIGNATURE: MCwCFDWWPf7m2K7TQwMc7x+F4eCEZTaTAhRfiXME1iI5vA14WXl7GLA6SnyiRw==

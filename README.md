@@ -2,7 +2,7 @@
 
 Konten und Umsätze von Bank of America in MoneyMoney.
 
-Version: **0.92** (Beta)
+Version: **0.93** (Beta)
 Repository: https://github.com/rosch100/Bank-of-America-MoneyMoney
 Gemeinsame Infos: https://github.com/rosch100/moneymoney-extensions
 
