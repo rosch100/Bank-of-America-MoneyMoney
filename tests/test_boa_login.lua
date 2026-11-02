@@ -8,6 +8,8 @@ LoginFailed = "LoginFailed"
 AccountTypeGiro = 1
 AccountTypeCreditCard = 3
 
+setCookieCalls = {}
+
 Connection = function()
   return {
     language = "en-US",
@@ -15,11 +17,16 @@ Connection = function()
     request = function()
       return nil
     end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
+    end,
     getCookies = function()
       return ""
     end,
   }
 end
+
+LocalStorage = {}
 
 MM = {
   printStatus = function(msg)
@@ -27,21 +34,6 @@ MM = {
   end,
   urlencode = function(str)
     return (tostring(str):gsub(" ", "+"))
-  end,
-  base64 = function(data)
-    return "b64:" .. data
-  end,
-  rsaPkcs8decode = function(pemOrDer)
-    if type(pemOrDer) == "string" and pemOrDer:find("PUBLIC KEY") then
-      return { n = "mod", e = "exp" }
-    end
-    return nil
-  end,
-  rsaEncrypt = function(keyTable, plaintext, paddingSpec)
-    if keyTable and plaintext and paddingSpec then
-      return "cipher:" .. plaintext .. ":" .. paddingSpec
-    end
-    return nil
   end,
 }
 
@@ -63,43 +55,102 @@ local function assertTrue(value, label)
   end
 end
 
+-- Minimaler JSON-Decoder für Tests (MoneyMoney stellt in der App ein eigenes JSON bereit).
+local function decodeJson(str)
+  local pos = 1
+
+  local function skipWs()
+    pos = str:find("[^ \t\r\n]", pos) or (#str + 1)
+  end
+
+  local parseValue
+
+  local function parseString()
+    local out = {}
+    pos = pos + 1
+    while true do
+      local c = str:sub(pos, pos)
+      if c == "" then error("unterminated string") end
+      if c == '"' then pos = pos + 1; break end
+      if c == "\\" then
+        local e = str:sub(pos + 1, pos + 1)
+        local map = { ['"'] = '"', ["\\"] = "\\", ["/"] = "/", b = "\b", f = "\f", n = "\n", r = "\r", t = "\t" }
+        if e == "u" then
+          out[#out + 1] = utf8.char(tonumber(str:sub(pos + 2, pos + 5), 16))
+          pos = pos + 6
+        else
+          out[#out + 1] = map[e] or error("bad escape")
+          pos = pos + 2
+        end
+      else
+        out[#out + 1] = c
+        pos = pos + 1
+      end
+    end
+    return table.concat(out)
+  end
+
+  function parseValue()
+    skipWs()
+    local c = str:sub(pos, pos)
+    if c == "{" then
+      local obj = {}
+      pos = pos + 1
+      skipWs()
+      if str:sub(pos, pos) == "}" then pos = pos + 1; return obj end
+      while true do
+        skipWs()
+        local k = parseString()
+        skipWs()
+        if str:sub(pos, pos) ~= ":" then error("expected :") end
+        pos = pos + 1
+        obj[k] = parseValue()
+        skipWs()
+        local d = str:sub(pos, pos)
+        pos = pos + 1
+        if d == "}" then return obj end
+        if d ~= "," then error("expected , or }") end
+      end
+    elseif c == "[" then
+      local arr = {}
+      pos = pos + 1
+      skipWs()
+      if str:sub(pos, pos) == "]" then pos = pos + 1; return arr end
+      while true do
+        arr[#arr + 1] = parseValue()
+        skipWs()
+        local d = str:sub(pos, pos)
+        pos = pos + 1
+        if d == "]" then return arr end
+        if d ~= "," then error("expected , or ]") end
+      end
+    elseif c == '"' then
+      return parseString()
+    elseif str:sub(pos, pos + 3) == "true" then
+      pos = pos + 4; return true
+    elseif str:sub(pos, pos + 4) == "false" then
+      pos = pos + 5; return false
+    elseif str:sub(pos, pos + 3) == "null" then
+      pos = pos + 4; return nil
+    else
+      local num = str:match("^-?%d+%.?%d*[eE]?[-+]?%d*", pos)
+      if not num or num == "" then error("unexpected token at " .. pos) end
+      pos = pos + #num
+      return tonumber(num)
+    end
+  end
+
+  return parseValue()
+end
+
 JSON = function(str)
   return {
-    dictionary = function()
-      local pageId = str:match('"xswPageId"%s*:%s*"([^"]+)"')
-      if pageId then
-        return { xswPageId = pageId }
-      end
-      return {}
-    end,
-    array = function()
-      return {}
-    end,
+    dictionary = function() return decodeJson(str) end,
+    array = function() return decodeJson(str) end,
   }
 end
 
 dofile("Bank of America.lua")
-
-do
-  local result = performPasswordLogin("user123", "secret")
-  assertEq(result, "Keine Antwort vom Login-Server.",
-    "performPasswordLogin.delegatesToSparta")
-end
-
-assertTrue(canUseRsaLogin(), "canUseRsaLogin")
-do
-  local savedBase64 = MM.base64
-  MM.base64 = nil
-  assertTrue(not canUseRsaLogin(), "canUseRsaLogin.requiresBase64")
-  MM.base64 = savedBase64
-  assertTrue(canUseRsaLogin(), "canUseRsaLogin.restored")
-end
-
-assertTrue(isSignOnSuccessRedirect("https://secure.bankofamerica.com/login/sign-in/signOnSuccessRedirect.go"), "isSignOnSuccessRedirect")
-assertTrue(isSignOnCredentialErrorPage("<p>The information you entered doesn't match our records.</p>"), "isSignOnCredentialErrorPage")
-
-local snippet = extractSignOnErrorSnippet("<p class=\"TLu_ERROR\">The information you entered doesn't match our records.</p>")
-assertTrue(snippet and snippet:match("doesn't match"), "extractSignOnErrorSnippet")
 
 local credSummary = boaDebugSummarizeCredentials("user123", "secret")
 assertTrue(credSummary:match("onlineId%.len=7"), "boaDebugSummarizeCredentials.onlineId")
@@ -113,35 +164,6 @@ assertTrue(emptySummary:match("WARN passcode leer"), "boaDebugSummarizeCredentia
 local blockedMsg = directLoginUnavailableMessage()
 assertTrue(blockedMsg:match("Cookie%-Import"), "directLoginUnavailableMessage")
 assertTrue(blockedMsg:match("WebbankingBrowser"), "directLoginUnavailableMessage.browser")
-
-local sessionKey = {
-  keyId = "hsm_enc_v1_authhub-key",
-  publicKey = "MIIBIjAN",
-  algo = "RSA/NONE/OAEPWithSHA256AndMGF1Padding",
-}
-
-local envelope = buildCipherEnvelope(sessionKey, "cipherbytes")
-assertTrue(envelope ~= nil and envelope:match("^b64:"), "buildCipherEnvelope")
-
-local cipherValue, cipherError = encryptCredential(sessionKey, "user123")
-assertTrue(cipherValue ~= nil, "encryptCredential")
-if not cipherValue then
-  error("encryptCredential returned nil")
-end
-assertTrue(cipherValue:match("^b64:"), "encryptCredential.base64")
-assertEq(cipherError, nil, "encryptCredential.error")
-
-local ra = buildClientSignalsRa()
-assertTrue(type(ra) == "string" and ra ~= "", "buildClientSignalsRa")
-
-assertEq(parseLoginApiError('{"errorInfo":[{"code":"invalid","description":"Bad login"}]}'), "Bad login", "parseLoginApiError")
-assertTrue(isLoginCompletionOk('{"completion":{"code":"100","value":"ALLOW"}}'), "isLoginCompletionOk")
-
-local contact = extractSecuredContactPoint('{"securedContactPoints":[{"deliveryMethod":"TEXT","maskedContactPoint":{"value":"XXX-1234"}}]}')
-if not contact then
-  error("extractSecuredContactPoint returned nil")
-end
-assertEq(contact.deliveryMethod, "TEXT", "extractSecuredContactPoint")
 
 assertTrue(isAuthenticatedAccountPage('<html>Ending in 1234 balance</html>'), "isAuthenticatedAccountPage.ok")
 assertTrue(not isAuthenticatedAccountPage('<html>Sign In</html>'), "isAuthenticatedAccountPage.login")
@@ -179,6 +201,9 @@ Connection = function()
     request = function()
       return "<html><body>Unexpected response</body></html>"
     end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
+    end,
     getCookies = function()
       return ""
     end,
@@ -191,6 +216,38 @@ local unexpectedResponse = InitializeSession2(
   {"user123", "COOKIE:SMSESSION=value"},
   true)
 checkAuthError(unexpectedResponse, "cookieImport.unexpectedResponse.error")
+
+-- Gespeicherte Sitzung, aber keine Antwort (Netzwerk): keine Cookie-Anforderung.
+Connection = function()
+  return {
+    request = function() return nil end,
+    setCookie = function(self, cookie) table.insert(setCookieCalls, cookie) end,
+    getCookies = function() return "SMSESSION=stored" end,
+  }
+end
+LocalStorage = {}
+local unreachableSession = InitializeSession2(
+  ProtocolWebBanking, "Bank of America", 1, {"user123", "secret"}, true)
+assertTrue(
+  type(unreachableSession) == "string"
+    and unreachableSession:find("nicht erreichbar", 1, true) ~= nil
+    and unreachableSession:find("Cookie-Import", 1, true) == nil,
+  "InitializeSession2.unreachableNoCookiePrompt")
+
+-- Gespeicherte Sitzung, Server zeigt Login-Seite: Cookie-Anforderung bleibt.
+Connection = function()
+  return {
+    request = function() return "<html>Sign In</html>" end,
+    setCookie = function(self, cookie) table.insert(setCookieCalls, cookie) end,
+    getCookies = function() return "SMSESSION=stored" end,
+  }
+end
+LocalStorage = {}
+local expiredSession = InitializeSession2(
+  ProtocolWebBanking, "Bank of America", 1, {"user123", "secret"}, true)
+assertTrue(
+  type(expiredSession) == "string" and expiredSession:find("Cookie-Import erforderlich", 1, true) ~= nil,
+  "InitializeSession2.expiredAsksCookies")
 if #authFailures > 0 then
   error("Auth error classification failed: " .. table.concat(authFailures, ", "))
 end
@@ -261,6 +318,9 @@ Connection = function()
     request = function()
       return "<html><body>Account Overview</body></html>"
     end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
+    end,
     getCookies = function()
       return ""
     end,
@@ -282,6 +342,9 @@ Connection = function()
   return {
     request = function()
       return '<html><body><a href="/card/">Credit Card Ending in 1234</a></body></html>'
+    end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
     end,
     getCookies = function()
       return ""
@@ -306,6 +369,9 @@ Connection = function()
       return '<div class="checking-account">Checking Account <span>Ending in 4321</span></div>'
         .. '<div class="promotion">Apply for a Credit Card today</div>'
     end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
+    end,
     getCookies = function()
       return ""
     end,
@@ -324,6 +390,9 @@ Connection = function()
   return {
     request = function()
       return nil
+    end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
     end,
     getCookies = function()
       return ""
@@ -346,6 +415,9 @@ Connection = function()
   return {
     request = function()
       return "<html><body>Account Overview</body></html>"
+    end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
     end,
     getCookies = function()
       return ""
@@ -372,6 +444,9 @@ Connection = function()
   return {
     request = function()
       return '<html><body>Sign In Statement Balance:<span class="TL_NPI_L1">$42.00</span></body></html>'
+    end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
     end,
     getCookies = function()
       return ""
@@ -403,6 +478,9 @@ Connection = function()
         return statementPayload
       end
       return "<html><body>Account Overview</body></html>"
+    end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
     end,
     getCookies = function()
       return ""
@@ -457,12 +535,18 @@ do
   local connA = {
     language = "",
     useragent = "",
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
+    end,
     getCookies = function() return "A=1" end,
     request = function() return nil end,
   }
   local connB = {
     language = "",
     useragent = "",
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
+    end,
     getCookies = function() return "B=1" end,
     request = function() return nil end,
   }
@@ -474,6 +558,9 @@ do
     return {
       language = "",
       useragent = "",
+      setCookie = function(self, cookie)
+        table.insert(setCookieCalls, cookie)
+      end,
       getCookies = function() return "" end,
       request = function() return nil end,
     }
@@ -488,6 +575,76 @@ do
   restoreLoginConnection("user-a")
   assertEq(LocalStorage.connection, connA, "multiLogin.reusesUserA")
   assertEq(LocalStorage.connectionAccountKey, "user-a", "multiLogin.activeKey.userA")
+end
+
+-- Cookie-Persistenz: Erfolgreicher Import wird gespeichert und ohne neuen Import wiederverwendet.
+local authedHtml = "<html>Ending in 1234 balance</html>"
+local loginHtml = "<html><body>Unexpected response</body></html>"
+local currentPage = authedHtml
+Connection = function()
+  return {
+    request = function()
+      return currentPage
+    end,
+    setCookie = function(self, cookie)
+      table.insert(setCookieCalls, cookie)
+    end,
+    getCookies = function()
+      return ""
+    end,
+  }
+end
+
+LocalStorage = {}
+setCookieCalls = {}
+local importResult = InitializeSession2(
+  ProtocolWebBanking, "Bank of America", 1,
+  {"user123", "COOKIE:SMSESSION=value"}, true)
+assertEq(importResult, nil, "persist.importReturnsNil")
+assertEq(setCookieCalls[1], "SMSESSION=value", "persist.setCookie")
+assertEq(LocalStorage.connectionsByAccount["user123"].importedCookies, "SMSESSION=value", "persist.storedCookies")
+
+setCookieCalls = {}
+local reuseResult = InitializeSession2(
+  ProtocolWebBanking, "Bank of America", 1,
+  {"user123", "COOKIE:SMSESSION=other"}, true)
+assertEq(reuseResult, nil, "persist.reuseGivesNil")
+assertEq(#setCookieCalls, 0, "persist.reuseSkipsImport")
+
+currentPage = loginHtml
+local expiredResult = InitializeSession2(
+  ProtocolWebBanking, "Bank of America", 1,
+  {"user123", ""}, true)
+assertTrue(expiredResult ~= nil and expiredResult:find("abgelaufen", 1, true) ~= nil, "persist.expiredAsksForCookies")
+currentPage = authedHtml
+
+-- Cookie-Vorrang: ein frischer Cookie der Connection ersetzt den gespeicherten Import.
+do
+  local sentCookie = nil
+  local reusedConnection = {
+    getCookies = function() return "SMSESSION=fresh" end,
+    setCookie = function(self, cookie) table.insert(setCookieCalls, cookie) end,
+    request = function(self, method, url, body, contentType, headers)
+      sentCookie = headers and headers["Cookie"]
+      return "<html>Sign In</html>"
+    end,
+  }
+  LocalStorage = {
+    connectionsByAccount = {
+      ["cookie-precedence"] = {
+        connection = reusedConnection,
+        importedCookies = "SMSESSION=old",
+      },
+    },
+  }
+  InitializeSession2(
+    ProtocolWebBanking, "Bank of America", 1,
+    {"cookie-precedence", "secret"}, true)
+  assertTrue(sentCookie ~= nil and sentCookie:find("SMSESSION=fresh", 1, true) ~= nil,
+    "restoreImportedCookies.connectionCookieWins")
+  assertTrue(sentCookie ~= nil and sentCookie:find("SMSESSION=old", 1, true) == nil,
+    "restoreImportedCookies.noStaleImport")
+  LocalStorage = {}
 end
 
 print("All BoA login helper tests passed.")

@@ -17,16 +17,6 @@ local CONSTANTS = {
   baseUrl = "https://secure.bankofamerica.com",
   bankCode = "BOA",
   userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
-  loginPartnerId = "7AB3CF1341CA460A84D1167C04F8F5E4",
-  loginInitContainerUrl = "https://secure.bankofamerica.com/login/rest/sas/sparta/ls/entry/v2/initContainer",
-  loginInitAuthUrl = "https://secure.bankofamerica.com/ahloginws/rest/sas/sparta/ls/v2/initAuthentication",
-  loginVerifyUrl = "https://secure.bankofamerica.com/ahloginws/rest/sas/sparta/ls/v2/verifyAuthentication",
-  loginStepUpUrl = "https://secure.bankofamerica.com/ahloginws/rest/sas/sparta/ls/secure/v3/initiateStepUp",
-  loginSendCodeUrl = "https://secure.bankofamerica.com/ahloginws/rest/sas/sparta/ls/secure/v2/sendCode",
-  loginValidateCodeUrl = "https://secure.bankofamerica.com/ahloginws/rest/sas/sparta/ls/secure/v2/validateCode",
-  loginSignInGoUrl = "https://secure.bankofamerica.com/myaccounts/signin/signIn.go?returnSiteIndicator=GAIEC&langPref=en-us&request_locale=en-us&capturemode=N&newuser=false",
-  loginReferer = "https://secure.bankofamerica.com/login/sign-in/signOnV2Screen.go",
-  loginOrigin = "https://secure.bankofamerica.com",
 }
 
 local connection
@@ -685,473 +675,6 @@ local function ensureConnection()
   end
 end
 
-function encodeJson(obj)
-  if JSON then
-    local ok, result = pcall(function() return JSON():set(obj):json() end)
-    if ok and type(result) == "string" then
-      return result
-    end
-  end
-  if type(obj) ~= "table" then
-    if type(obj) == "string" then
-      return string.format("%q", obj)
-    end
-    if type(obj) == "boolean" then
-      return obj and "true" or "false"
-    end
-    if obj == nil then
-      return "null"
-    end
-    return tostring(obj)
-  end
-
-  local parts = {}
-  if #obj > 0 then
-    for _, value in ipairs(obj) do
-      table.insert(parts, encodeJson(value))
-    end
-    return "[" .. table.concat(parts, ",") .. "]"
-  end
-
-  for key, value in pairs(obj) do
-    local encodedValue
-    if type(value) == "table" then
-      encodedValue = encodeJson(value)
-    elseif type(value) == "string" then
-      encodedValue = string.format("%q", value)
-    elseif type(value) == "boolean" then
-      encodedValue = value and "true" or "false"
-    elseif type(value) == "number" then
-      encodedValue = tostring(value)
-    else
-      encodedValue = "null"
-    end
-    table.insert(parts, string.format("%q", key) .. ":" .. encodedValue)
-  end
-  return "{" .. table.concat(parts, ",") .. "}"
-end
-
-function parseJson(jsonStr)
-  if type(jsonStr) ~= "string" or jsonStr == "" then
-    return nil
-  end
-  jsonStr = jsonStr:match("^%s*(.-)%s*$")
-  if not jsonStr:match("^[%[{]") then
-    return nil
-  end
-  if JSON then
-    local ok, result = pcall(function() return JSON(jsonStr):dictionary() end)
-    if ok and type(result) == "table" then
-      return result
-    end
-    ok, result = pcall(function() return JSON(jsonStr):array() end)
-    if ok and type(result) == "table" then
-      return result
-    end
-  end
-  return nil
-end
-
-function base64Encode(data)
-  if type(data) ~= "string" then
-    return nil
-  end
-  if type(MM.base64) ~= "function" then
-    return nil
-  end
-  return MM.base64(data)
-end
-
-function canUseRsaLogin()
-  return type(MM.rsaEncrypt) == "function" and type(MM.base64) == "function"
-end
-
-function buildLoginFilterRules()
-  return {
-    { value = "CONSUMER", name = "PLATFORM" },
-    { value = "BOA", name = "BRAND" },
-    { value = "WEB", name = "CHANNEL" },
-    { value = "SignInIdPwd", name = "FLOW" },
-  }
-end
-
-function buildClientSignalsRa()
-  local timestamp = os.date("%Y-%m-%d %H:%M:%S")
-  local payload = {
-    client_signals = {
-      session = {
-        brand = "GWIM",
-        timestamp = timestamp,
-        activity = "login",
-        url = CONSTANTS.loginReferer,
-        user_agent = CONSTANTS.userAgent,
-        ip = nil,
-      },
-      device = {
-        browser = "Safari",
-        browser_version = "26.5",
-        os = "macOS",
-        platform = "MacIntel",
-        language = "en-US",
-      },
-      behavior = {
-        keystroke_event_count = 0,
-      },
-    },
-  }
-  local jsonPayload = encodeJson(payload)
-  local encoded = base64Encode(jsonPayload)
-  if not encoded then
-    return nil
-  end
-  return encoded
-end
-
-function decodeSpkiPublicKey(spkiB64)
-  if type(spkiB64) ~= "string" or spkiB64 == "" then
-    return nil
-  end
-  if type(MM.rsaPkcs8decode) ~= "function" then
-    return nil
-  end
-
-  local pem = "-----BEGIN PUBLIC KEY-----\n" .. spkiB64 .. "\n-----END PUBLIC KEY-----"
-  local ok, keyTable = pcall(MM.rsaPkcs8decode, pem)
-  if ok and type(keyTable) == "table" then
-    return keyTable
-  end
-
-  ok, keyTable = pcall(MM.rsaPkcs8decode, spkiB64)
-  if ok and type(keyTable) == "table" then
-    return keyTable
-  end
-
-  return nil
-end
-
-function buildCipherEnvelope(sessionKey, encryptedBinary)
-  if type(sessionKey) ~= "table" or type(encryptedBinary) ~= "string" or encryptedBinary == "" then
-    return nil
-  end
-  local encryptedData = base64Encode(encryptedBinary)
-  if not encryptedData then
-    return nil
-  end
-
-  local envelope = {
-    keyId = sessionKey.keyId,
-    publicKey = sessionKey.publicKey,
-    algo = sessionKey.algo,
-    encryptedData = encryptedData,
-  }
-  local envelopeJson = encodeJson(envelope)
-  return base64Encode(envelopeJson)
-end
-
-function encryptCredential(sessionKey, plaintext)
-  if type(plaintext) ~= "string" or plaintext == "" then
-    return nil, "Leerer Anmeldedaten-Wert"
-  end
-  if not canUseRsaLogin() then
-    return nil, "MM.rsaEncrypt nicht verfügbar"
-  end
-
-  local keyTable = decodeSpkiPublicKey(sessionKey.publicKey)
-  if not keyTable then
-    return nil, "Public Key konnte nicht dekodiert werden"
-  end
-
-  local paddingSpecs = { "pkcs1-oaep sha256", "pkcs1-oaep sha256 sha1" }
-  for _, paddingSpec in ipairs(paddingSpecs) do
-    local ok, encryptedBinary = pcall(function()
-      return MM.rsaEncrypt(keyTable, plaintext, paddingSpec)
-    end)
-    if ok and type(encryptedBinary) == "string" and encryptedBinary ~= "" then
-      local cipherValue = buildCipherEnvelope(sessionKey, encryptedBinary)
-      if cipherValue then
-        return cipherValue
-      end
-    end
-  end
-
-  return nil, "RSA-Verschlüsselung fehlgeschlagen"
-end
-
-function buildTokenSet(tokenType, cipherValue)
-  return {
-    type = tokenType,
-    value = {
-      cipherData = {
-        value = cipherValue,
-      },
-    },
-  }
-end
-
-local function buildLoginApiHeaders()
-  return {
-    ["Accept"] = "application/json",
-    ["Accept-Language"] = "en-US,en;q=0.9",
-    ["Content-Type"] = "application/json",
-    ["Cache-Control"] = "max-age=0",
-    ["Origin"] = CONSTANTS.loginOrigin,
-    ["Referer"] = CONSTANTS.loginReferer,
-    ["User-Agent"] = CONSTANTS.userAgent,
-    ["APP-NAME"] = "CONSUMER",
-    ["Cookie"] = session.cookies,
-  }
-end
-
-local function performLoginApiPost(url, bodyTable)
-  ensureConnection()
-  url = assertAllowedBoaUrl(url)
-  local headers = buildLoginApiHeaders()
-  local body = encodeJson(bodyTable)
-  syncCookieHeader(headers)
-  local response = connection:request("POST", url, body, "application/json", headers)
-  refreshSessionCookies()
-  syncCookieHeader(headers)
-  return response
-end
-
-function parseLoginApiError(response)
-  if type(response) ~= "string" or response == "" then
-    return "Keine Antwort vom Login-Server."
-  end
-  local data = parseJson(response)
-  if data and type(data.errorInfo) == "table" and data.errorInfo[1] then
-    local info = data.errorInfo[1]
-    if type(info) == "table" then
-      if info.description and info.description ~= "" then
-        return info.description
-      end
-      if info.code and info.code ~= "" then
-        return info.code
-      end
-    end
-  end
-
-  local description = response:match('"description"%s*:%s*"([^"]+)"')
-  if description and description ~= "" then
-    return description
-  end
-  local code = response:match('"errorInfo"%s*:%s*%[%s*{%s*"code"%s*:%s*"([^"]+)"')
-  if code and code ~= "" then
-    return code
-  end
-
-  return nil
-end
-
-function isLoginCompletionOk(response)
-  if type(response) ~= "string" or response == "" then
-    return false
-  end
-  local data = parseJson(response)
-  if data
-    and type(data.completion) == "table"
-    and tostring(data.completion.code) == "100" then
-    return true
-  end
-  return response:match('"completion"%s*:%s*{%s*"code"%s*:%s*"100"') ~= nil
-end
-
-function fetchLoginSessionKey()
-  local body = {
-    partnerId = CONSTANTS.loginPartnerId,
-    filterRules = buildLoginFilterRules(),
-    passkeyCapabilities = { supportsPasskeys = true },
-  }
-  local response = performLoginApiPost(CONSTANTS.loginInitContainerUrl, body)
-  local errorMessage = parseLoginApiError(response)
-  if errorMessage then
-    return nil, errorMessage
-  end
-  if not isLoginCompletionOk(response) then
-    return nil, "Login-Initialisierung fehlgeschlagen."
-  end
-
-  local data = parseJson(response)
-  if not data or type(data.sessionPublicKey) ~= "string" or data.sessionPublicKey == "" then
-    return nil, "Kein sessionPublicKey in initContainer-Antwort."
-  end
-
-  return {
-    keyId = data.keyId or "hsm_enc_v1_authhub-key",
-    publicKey = data.sessionPublicKey,
-    algo = data.algo or "RSA/NONE/OAEPWithSHA256AndMGF1Padding",
-  }
-end
-
-function submitOnlineId(sessionKey, username)
-  local cipherValue, encryptError = encryptCredential(sessionKey, username)
-  if not cipherValue then
-    return nil, encryptError or "Benutzername konnte nicht verschlüsselt werden."
-  end
-
-  local body = {
-    partnerId = CONSTANTS.loginPartnerId,
-    filterRules = buildLoginFilterRules(),
-    tokenSets = { buildTokenSet("ONLINE_ID", cipherValue) },
-  }
-  local response = performLoginApiPost(CONSTANTS.loginInitAuthUrl, body)
-  local errorMessage = parseLoginApiError(response)
-  if errorMessage then
-    return nil, errorMessage
-  end
-  if not isLoginCompletionOk(response) then
-    return nil, "initAuthentication fehlgeschlagen."
-  end
-
-  return cipherValue
-end
-
-function buildVerifyProcessRules()
-  local rules = {
-    { value = CONSTANTS.loginPartnerId, name = "PARTNER_ID" },
-    { value = "false", name = "SAVE_ONLINE_ID" },
-  }
-  local clientSignals = buildClientSignalsRa()
-  if clientSignals then
-    table.insert(rules, { value = clientSignals, name = "_RA" })
-  end
-  return rules
-end
-
-function verifyCredentials(sessionKey, username, password, onlineIdCipher)
-  local passwordCipher, passwordError = encryptCredential(sessionKey, password)
-  if not passwordCipher then
-    return nil, passwordError or "Passwort konnte nicht verschlüsselt werden."
-  end
-
-  local body = {
-    processRules = buildVerifyProcessRules(),
-    tokenSets = {
-      buildTokenSet("ONLINE_ID", onlineIdCipher),
-      buildTokenSet("PASSWORD", passwordCipher),
-    },
-  }
-  local response = performLoginApiPost(CONSTANTS.loginVerifyUrl, body)
-  local errorMessage = parseLoginApiError(response)
-  if errorMessage then
-    return nil, errorMessage
-  end
-  if not isLoginCompletionOk(response) then
-    return nil, "verifyAuthentication fehlgeschlagen."
-  end
-
-  return true
-end
-
-function buildMfaProcessRules()
-  return {
-    { name = "SourceChannel", value = "VMA" },
-    { name = "Profile", value = "A01" },
-    { name = "AuthenticationContext", value = "SGNONCHLNG" },
-  }
-end
-
-function extractSecuredContactPoint(response)
-  local data = parseJson(response)
-  if data then
-    local candidates = {
-      data.securedContactPoint,
-      data.securedContactPoints and data.securedContactPoints[1],
-      data.contactPoints and data.contactPoints[1],
-      data.authenticationMethods and data.authenticationMethods[1],
-    }
-    for _, candidate in ipairs(candidates) do
-      if type(candidate) == "table" then
-        return candidate
-      end
-    end
-  end
-
-  local deliveryMethod = response:match('"deliveryMethod"%s*:%s*"([^"]+)"')
-  local maskedValue = response:match('"maskedContactPoint"%s*:%s*{%s*"value"%s*:%s*"([^"]+)"')
-  if deliveryMethod or maskedValue then
-    return {
-      deliveryMethod = deliveryMethod or "TEXT",
-      maskedContactPoint = {
-        value = maskedValue or "",
-        description = "Masked Phone Number",
-      },
-    }
-  end
-
-  return nil
-end
-
-function initiateMfaStepUp()
-  local body = {
-    processRules = {
-      { name = "AuthenticationContext", value = "SGNONCHLNG" },
-      { name = "U2F_ENABLED", value = "true" },
-    },
-    filterRules = {
-      { value = "CONSUMER", name = "BRAND" },
-      { value = "WEB", name = "CHANNEL" },
-    },
-  }
-  local response = performLoginApiPost(CONSTANTS.loginStepUpUrl, body)
-  local errorMessage = parseLoginApiError(response)
-  if errorMessage then
-    return nil, errorMessage
-  end
-  if not isLoginCompletionOk(response) then
-    return nil, "initiateStepUp fehlgeschlagen."
-  end
-
-  local contactPoint = extractSecuredContactPoint(response)
-  if not contactPoint then
-    return nil, "Keine MFA-Kontaktmethode in initiateStepUp-Antwort gefunden."
-  end
-
-  return contactPoint
-end
-
-function sendMfaCode(contactPoint)
-  local body = {
-    securedContactPoint = contactPoint,
-    processRules = buildMfaProcessRules(),
-  }
-  local response = performLoginApiPost(CONSTANTS.loginSendCodeUrl, body)
-  local errorMessage = parseLoginApiError(response)
-  if errorMessage then
-    return nil, errorMessage
-  end
-  if not isLoginCompletionOk(response) then
-    return nil, "sendCode fehlgeschlagen."
-  end
-
-  local masked = ""
-  if type(contactPoint.maskedContactPoint) == "table" then
-    masked = contactPoint.maskedContactPoint.value or ""
-  end
-  return masked
-end
-
-function validateMfaCode(code)
-  if type(code) ~= "string" or code:match("^%s*$") then
-    return nil, "Leerer MFA-Code."
-  end
-
-  local body = {
-    authenticationCode = code:match("^%s*(.-)%s*$"),
-    processRules = buildMfaProcessRules(),
-  }
-  local response = performLoginApiPost(CONSTANTS.loginValidateCodeUrl, body)
-  local errorMessage = parseLoginApiError(response)
-  if errorMessage then
-    return nil, errorMessage
-  end
-  if not isLoginCompletionOk(response) then
-    return nil, "validateCode fehlgeschlagen."
-  end
-
-  return true
-end
-
 function extractResponseHeader(respHeaders, headerName)
   if not respHeaders or not headerName then
     return nil
@@ -1205,16 +728,6 @@ function isDirectAccountRedirect(location)
     or location:match("myaccounts/details") ~= nil
 end
 
-function completeLoginNavigation()
-  local headers = buildRequestHeaders(CONSTANTS.loginReferer)
-  local response = performGet(CONSTANTS.loginSignInGoUrl, headers, CONSTANTS.loginReferer)
-  refreshSessionCookies()
-  if not response then
-    return nil, "signIn.go ohne Antwort."
-  end
-  return true
-end
-
 local function isBoaLoginPage(response)
   if not response then
     return false
@@ -1238,6 +751,8 @@ function isAuthenticatedAccountPage(response)
     or response:match("Account Overview")) ~= nil
 end
 
+-- true: Sitzung gültig. false: Server meldet die Sitzung als abgelaufen.
+-- nil: keine Antwort (Netzwerkfehler), Sitzung ist unbekannt, Cookies nicht anfordern.
 function verifyActiveSession()
   if not session.cookies or session.cookies == "" then
     session.cookies = connection and connection:getCookies() or session.cookies
@@ -1252,6 +767,10 @@ function verifyActiveSession()
     testHeaders,
     CONSTANTS.baseUrl .. "/"
   )
+
+  if testResponse == nil then
+    return nil
+  end
 
   if isAuthenticatedAccountPage(testResponse) then
     rememberStatementPageUrl(testResponse, session.adxToken)
@@ -1312,85 +831,45 @@ function directLoginUnavailableMessage()
     .. "Details: https://github.com/rosch100/moneymoney-extensions/blob/main/docs/ENGINE-API-GAPS.md"
 end
 
-function performPasswordLogin(username, password)
-  boaDebugLog("Direct-Login: Starte Sparta-Authentifizierung")
-  return performSpartaPasswordLogin(username, password)
-end
-
-function performSpartaPasswordLogin(username, password)
-  if not canUseRsaLogin() then
-    return "Bank of America benötigt MM.rsaEncrypt und MM.base64 für den Sparta-Login.\n\nCookie-Import: COOKIE:SMSESSION=...;SSOTOKEN=..."
-  end
-
-  local sessionKey, keyError = fetchLoginSessionKey()
-  if not sessionKey then
-    return keyError or "Public Key konnte nicht geladen werden."
-  end
-
-  local onlineIdCipher, onlineError = submitOnlineId(sessionKey, username)
-  if not onlineIdCipher then
-    return onlineError or "Benutzername-Schritt fehlgeschlagen."
-  end
-
-  session.loginSessionKey = sessionKey
-  session.onlineIdCipher = onlineIdCipher
-
-  local verified, verifyError = verifyCredentials(sessionKey, username, password, onlineIdCipher)
-  if not verified then
-    return verifyError or "Passwort-Verifikation fehlgeschlagen."
-  end
-
-  local contactPoint, stepUpError = initiateMfaStepUp()
-  if not contactPoint then
-    return stepUpError or "MFA-Initialisierung fehlgeschlagen."
-  end
-
-  session.mfaContactPoint = contactPoint
-  local maskedContact, sendError = sendMfaCode(contactPoint)
-  if not maskedContact and sendError then
-    return sendError
-  end
-
-  session.awaitingMfaCode = true
-  session.mfaMaskedContact = maskedContact or "Ihr registriertes Gerät"
-  return {
-    id = 2,
-    title = "Bank of America",
-    challenge = "Bitte den Authentifizierungscode eingeben"
-      .. (session.mfaMaskedContact ~= "" and (" (" .. session.mfaMaskedContact .. ").") or "."),
-    label = "Authentication Code",
-  }
-end
-
-function submitMfaLoginStep(code)
-  local validated, validateError = validateMfaCode(code)
-  if not validated then
-    return {
-      id = 2,
-      title = "Bank of America",
-      challenge = validateError or "Ungültiger Code. Bitte erneut eingeben.",
-      label = "Authentication Code",
-    }
-  end
-
-  local completed, navError = completeLoginNavigation()
-  if not completed then
-    return navError or "Login-Abschluss fehlgeschlagen."
-  end
-
-  if not verifyActiveSession() then
-    return "Login abgeschlossen, aber Session nicht verifiziert. Bitte erneut versuchen."
-  end
-
-  session.awaitingMfaCode = false
-  session.mfaContactPoint = nil
-  session.onlineIdCipher = nil
-  session.loginSessionKey = nil
-  return nil
-end
-
 function SupportsBank(protocol, bankCode)
   return protocol == ProtocolWebBanking and bankCode == "Bank of America"
+end
+
+function restoreImportedCookies(accountKey)
+  local storage = rawget(_G, "LocalStorage")
+  if not storage or not storage.connectionsByAccount then
+    return
+  end
+  local entry = storage.connectionsByAccount[accountKey]
+  if entry and type(entry.importedCookies) == "string" and entry.importedCookies ~= "" then
+    -- Importierte Cookies sind nur die Basis; frischere Werte der Connection gewinnen.
+    session.cookies = mergeCookies(entry.importedCookies, session.cookies)
+  end
+end
+
+function persistImportedCookies(cookieString)
+  local storage = rawget(_G, "LocalStorage")
+  if not storage then
+    error("Bank of America: LocalStorage nicht verfügbar, Cookies können nicht gespeichert werden.")
+  end
+  local accountKey = storage.connectionAccountKey or ""
+  storage.connectionsByAccount = storage.connectionsByAccount or {}
+  local entry = storage.connectionsByAccount[accountKey]
+  if not entry then
+    entry = { connection = connection }
+    storage.connectionsByAccount[accountKey] = entry
+  end
+  entry.importedCookies = cookieString
+
+  if type(connection.setCookie) ~= "function" then
+    error("Bank of America: Connection:setCookie fehlt, Cookies können nicht gesetzt werden.")
+  end
+  for pair in cookieString:gmatch("[^;]+") do
+    local name, value = pair:match("^%s*([^=%s]+)%s*=%s*(.-)%s*$")
+    if name then
+      connection:setCookie(name .. "=" .. value)
+    end
+  end
 end
 
 function InitializeSession2(protocol, bankCode, step, credentials, interactive)
@@ -1401,6 +880,16 @@ function InitializeSession2(protocol, bankCode, step, credentials, interactive)
   boaDebugLog("InitializeSession2 step=" .. tostring(step) .. ", " .. boaDebugSummarizeCredentials(username, password))
 
   restoreLoginConnection(accountKey)
+  restoreImportedCookies(accountKey)
+
+  local storedSessionValid = nil
+  if step == 1 then
+    storedSessionValid = verifyActiveSession()
+  end
+  if storedSessionValid == true then
+    boaDebugLog("Gespeicherte Session noch gültig, Cookie-Import übersprungen")
+    return nil
+  end
 
   if password and password:match("^COOKIE:") then
     boaDebugLog("Modus: Cookie-Import")
@@ -1408,23 +897,14 @@ function InitializeSession2(protocol, bankCode, step, credentials, interactive)
   end
 
   if step == 1 then
-    if verifyActiveSession() then
-      boaDebugLog("Bestehende Session noch gültig, Login übersprungen")
-      return nil
+    if storedSessionValid == nil then
+      boaDebugLog("Sitzungsprüfung ohne Antwort, keine Cookie-Anforderung")
+      return "Bank of America ist gerade nicht erreichbar. Bitte in einigen Minuten erneut versuchen."
     end
-
-    if username == "" or password == "" then
-      boaDebugLog("Abbruch: Credentials leer")
-      return "Cookie-Import erforderlich: Passwort = COOKIE:SMSESSION=...;SSOTOKEN=...\n\n"
-        .. directLoginUnavailableMessage()
-    end
-
-    return performPasswordLogin(username, password)
-  end
-
-  if session.awaitingMfaCode then
-    boaDebugLog("InitializeSession2 MFA step")
-    return submitMfaLoginStep(credentials and credentials[1] or "")
+    boaDebugLog("Keine gültige Session, neue Cookies erforderlich")
+    return "Die gespeicherte Bank-of-America-Sitzung ist abgelaufen.\n\n"
+      .. "Cookie-Import erforderlich: Passwort = COOKIE:SMSESSION=...;SSOTOKEN=...\n\n"
+      .. directLoginUnavailableMessage()
   end
 
   boaDebugLog("InitializeSession2: MFA-Session fehlt")
@@ -1467,6 +947,7 @@ function loginWithImportedCookies(cookieString)
   if isAuthenticatedAccountPage(testResponse) then
     rememberStatementPageUrl(testResponse, session.adxToken)
     updateAdxFromResponse(testResponse, session.adxToken)
+    persistImportedCookies(formattedCookies)
     return nil
   end
 
